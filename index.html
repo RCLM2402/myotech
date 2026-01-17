@@ -399,14 +399,30 @@
 
         async function connectBLE() {
             try {
+                // Check if Web Bluetooth is supported
+                if (!navigator.bluetooth) {
+                    alert('Web Bluetooth is not supported in this browser. Please use Chrome, Edge, or Opera.');
+                    return;
+                }
+
+                console.log('Requesting Bluetooth Device...');
+                
                 bleDevice = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'MYOTECH_PRO' }],
                     optionalServices: ['4fafc201-1fb5-459e-8fcc-c5c9c331914b']
                 });
 
+                console.log('Device found:', bleDevice.name);
+                console.log('Connecting to GATT Server...');
+                
                 const server = await bleDevice.gatt.connect();
+                console.log('Connected to GATT Server');
+                
                 const service = await server.getPrimaryService('4fafc201-1fb5-459e-8fcc-c5c9c331914b');
+                console.log('Service found');
+                
                 bleCharacteristic = await service.getCharacteristic('beb5483e-36e1-4688-b7f5-ea07361b26a8');
+                console.log('Characteristic found');
 
                 await bleCharacteristic.startNotifications();
                 bleCharacteristic.addEventListener('characteristicvaluechanged', handleData);
@@ -415,9 +431,31 @@
                 document.getElementById('status').classList.remove('disconnected');
                 document.getElementById('connectBtn').disabled = true;
                 document.getElementById('disconnectBtn').disabled = false;
+                
+                console.log('Successfully connected and listening for data');
             } catch(error) {
-                console.error('BLE Error:', error);
-                alert('Failed to connect. Make sure device is nearby and powered on.');
+                console.error('BLE Error Details:', error);
+                let errorMsg = 'Failed to connect.\n\n';
+                
+                if (error.name === 'NotFoundError') {
+                    errorMsg += 'Device not found. Make sure:\n';
+                    errorMsg += '• ESP32 is powered on\n';
+                    errorMsg += '• Device is within range\n';
+                    errorMsg += '• Device name is exactly "MYOTECH_PRO"';
+                } else if (error.name === 'SecurityError') {
+                    errorMsg += 'Security error. Make sure:\n';
+                    errorMsg += '• You are using HTTPS or localhost\n';
+                    errorMsg += '• Browser has Bluetooth permissions';
+                } else if (error.name === 'NetworkError') {
+                    errorMsg += 'Connection failed. Try:\n';
+                    errorMsg += '• Moving closer to the device\n';
+                    errorMsg += '• Restarting the ESP32\n';
+                    errorMsg += '• Refreshing the page';
+                } else {
+                    errorMsg += 'Error: ' + error.message;
+                }
+                
+                alert(errorMsg);
             }
         }
 
