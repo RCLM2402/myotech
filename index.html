@@ -356,12 +356,12 @@
             document.getElementById('angle').textContent = angle + '°';
             document.getElementById('rms').textContent = rms;
 
-            // Color coding
+            // Color coding - matched to Arduino thresholds
             const fatigueEl = document.getElementById('fatigueIndex');
             fatigueEl.className = 'metric-value';
-            if(fatigueIndex < 25) fatigueEl.classList.add('fatigue-low');
-            else if(fatigueIndex < 60) fatigueEl.classList.add('fatigue-medium');
-            else fatigueEl.classList.add('fatigue-high');
+            if(fatigueIndex < 50) fatigueEl.classList.add('fatigue-low'); // Fresh
+            else if(fatigueIndex < 80) fatigueEl.classList.add('fatigue-medium'); // Moderate
+            else fatigueEl.classList.add('fatigue-high'); // Hard
 
             // Update progress ring
             const circle = document.getElementById('fatigueCircle');
