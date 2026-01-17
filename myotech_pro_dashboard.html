@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MYOTECH - PRO CONNECT</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #fff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            background: linear-gradient(90deg, #00d4ff, #7b2ff7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 8px 20px;
+            background: #00ff88;
+            color: #0a0e27;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .status.disconnected {
+            background: #ff4444;
+            color: white;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 15px;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card h3 {
+            font-size: 0.9em;
+            color: #00d4ff;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .metric-value {
+            font-size: 3em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .metric-label {
+            color: #aaa;
+            font-size: 0.9em;
+        }
+
+        .fatigue-low { color: #00ff88; }
+        .fatigue-medium { color: #ffaa00; }
+        .fatigue-high { color: #ff4444; }
+
+        .chart-container {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 15px;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            margin-bottom: 20px;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 300px !important;
+        }
+
+        .controls {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        button {
+            padding: 15px 40px;
+            font-size: 1.1em;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            background: linear-gradient(90deg, #00d4ff, #7b2ff7);
+            color: white;
+            font-weight: bold;
+            margin: 0 10px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .progress-ring {
+            transform: rotate(-90deg);
+        }
+
+        .progress-ring-circle {
+            transition: stroke-dashoffset 0.5s;
+            stroke: #00d4ff;
+            fill: transparent;
+            stroke-width: 8;
+        }
+
+        .angle-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .angle-arc {
+            position: relative;
+            width: 200px;
+            height: 100px;
+            overflow: hidden;
+        }
+
+        .angle-needle {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 4px;
+            height: 80px;
+            background: #00ff88;
+            transform-origin: bottom center;
+            transition: transform 0.3s;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>MYOTECH - PRO CONNECT</h1>
+        <p>Professional EMG & Motion Analysis System</p>
+        <div class="status disconnected" id="status">DISCONNECTED</div>
+    </div>
+
+    <div class="controls">
+        <button id="connectBtn" onclick="connectBLE()">Connect Device</button>
+        <button id="disconnectBtn" onclick="disconnectBLE()" disabled>Disconnect</button>
+    </div>
+
+    <div class="dashboard">
+        <div class="card">
+            <h3>Fatigue Index</h3>
+            <div class="metric-value" id="fatigueIndex">--</div>
+            <div class="metric-label" id="fatigueLevel">Waiting for data...</div>
+            <svg width="100%" height="120" style="margin-top: 20px;">
+                <circle class="progress-ring-circle" cx="60" cy="60" r="50" 
+                        stroke-dasharray="314.159" stroke-dashoffset="314.159" id="fatigueCircle"/>
+            </svg>
+        </div>
+
+        <div class="card">
+            <h3>Median Frequency (MDF)</h3>
+            <div class="metric-value" id="mdf">--</div>
+            <div class="metric-label">Hz</div>
+        </div>
+
+        <div class="card">
+            <h3>RMS Signal</h3>
+            <div class="metric-value" id="rms">--</div>
+            <div class="metric-label">12-bit ADC (0-4095)</div>
+        </div>
+
+        <div class="card">
+            <h3>Joint Angle</h3>
+            <div class="metric-value" id="angle">--</div>
+            <div class="metric-label">Degrees</div>
+            <div class="angle-indicator">
+                <div class="angle-arc">
+                    <div class="angle-needle" id="angleNeedle"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <h3 style="color: #00d4ff; margin-bottom: 20px;">REAL-TIME EMG SIGNAL (12-bit Resolution)</h3>
+        <canvas id="emgChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h3 style="color: #00d4ff; margin-bottom: 20px;">FATIGUE TREND</h3>
+        <canvas id="fatigueChart"></canvas>
+    </div>
+
+    <script>
+        let bleDevice;
+        let bleCharacteristic;
+        let emgData = [];
+        let fatigueHistory = [];
+        let timeLabels = [];
+        const maxDataPoints = 50;
+
+        // EMG Chart Setup
+        const emgCtx = document.getElementById('emgChart').getContext('2d');
+        const emgChart = createChart(emgCtx, 'EMG RMS Value', '#00ff88');
+
+        // Fatigue Chart Setup
+        const fatigueCtx = document.getElementById('fatigueChart').getContext('2d');
+        const fatigueChart = createChart(fatigueCtx, 'Fatigue Index (%)', '#ff4444');
+
+        function createChart(ctx, label, color) {
+            return {
+                ctx: ctx,
+                data: [],
+                labels: [],
+                color: color,
+                draw: function() {
+                    const canvas = ctx.canvas;
+                    const width = canvas.width;
+                    const height = canvas.height;
+                    
+                    ctx.clearRect(0, 0, width, height);
+                    
+                    // Grid
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+                    ctx.lineWidth = 1;
+                    for(let i = 0; i < 5; i++) {
+                        const y = (height / 4) * i;
+                        ctx.beginPath();
+                        ctx.moveTo(0, y);
+                        ctx.lineTo(width, y);
+                        ctx.stroke();
+                    }
+                    
+                    if(this.data.length < 2) return;
+                    
+                    // Draw line
+                    ctx.strokeStyle = this.color;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    
+                    const max = Math.max(...this.data, 1);
+                    const min = Math.min(...this.data, 0);
+                    const range = max - min || 1;
+                    
+                    this.data.forEach((val, i) => {
+                        const x = (i / (this.data.length - 1)) * width;
+                        const y = height - ((val - min) / range) * height * 0.9 - height * 0.05;
+                        
+                        if(i === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    });
+                    
+                    ctx.stroke();
+                    
+                    // Draw points
+                    ctx.fillStyle = this.color;
+                    this.data.forEach((val, i) => {
+                        const x = (i / (this.data.length - 1)) * width;
+                        const y = height - ((val - min) / range) * height * 0.9 - height * 0.05;
+                        ctx.beginPath();
+                        ctx.arc(x, y, 3, 0, Math.PI * 2);
+                        ctx.fill();
+                    });
+                }
+            };
+        }
+
+        async function connectBLE() {
+            try {
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'MYOTECH_PRO' }],
+                    optionalServices: ['4fafc201-1fb5-459e-8fcc-c5c9c331914b']
+                });
+
+                const server = await bleDevice.gatt.connect();
+                const service = await server.getPrimaryService('4fafc201-1fb5-459e-8fcc-c5c9c331914b');
+                bleCharacteristic = await service.getCharacteristic('beb5483e-36e1-4688-b7f5-ea07361b26a8');
+
+                await bleCharacteristic.startNotifications();
+                bleCharacteristic.addEventListener('characteristicvaluechanged', handleData);
+
+                document.getElementById('status').textContent = 'CONNECTED';
+                document.getElementById('status').classList.remove('disconnected');
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+            } catch(error) {
+                console.error('BLE Error:', error);
+                alert('Failed to connect. Make sure device is nearby and powered on.');
+            }
+        }
+
+        function disconnectBLE() {
+            if(bleDevice && bleDevice.gatt.connected) {
+                bleDevice.gatt.disconnect();
+            }
+            document.getElementById('status').textContent = 'DISCONNECTED';
+            document.getElementById('status').classList.add('disconnected');
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('disconnectBtn').disabled = true;
+        }
+
+        function handleData(event) {
+            const value = new TextDecoder().decode(event.target.value);
+            const data = value.split(',');
+            
+            // Parse: fatigueIndex, fatigueLevel, MDF, angleX, RMS
+            const fatigueIndex = parseInt(data[0]);
+            const fatigueLevel = data[1];
+            const mdf = parseInt(data[2]);
+            const angle = parseInt(data[3]);
+            const rms = parseInt(data[4]);
+
+            // Update UI
+            document.getElementById('fatigueIndex').textContent = fatigueIndex;
+            document.getElementById('fatigueLevel').textContent = fatigueLevel;
+            document.getElementById('mdf').textContent = mdf;
+            document.getElementById('angle').textContent = angle + '°';
+            document.getElementById('rms').textContent = rms;
+
+            // Color coding
+            const fatigueEl = document.getElementById('fatigueIndex');
+            fatigueEl.className = 'metric-value';
+            if(fatigueIndex < 25) fatigueEl.classList.add('fatigue-low');
+            else if(fatigueIndex < 60) fatigueEl.classList.add('fatigue-medium');
+            else fatigueEl.classList.add('fatigue-high');
+
+            // Update progress ring
+            const circle = document.getElementById('fatigueCircle');
+            const circumference = 2 * Math.PI * 50;
+            const offset = circumference - (fatigueIndex / 100) * circumference;
+            circle.style.strokeDashoffset = offset;
+
+            // Update angle needle
+            const needle = document.getElementById('angleNeedle');
+            needle.style.transform = `translateX(-50%) rotate(${angle - 90}deg)`;
+
+            // Update charts
+            emgData.push(rms);
+            if(emgData.length > maxDataPoints) emgData.shift();
+            emgChart.data = emgData;
+            emgChart.draw();
+
+            fatigueHistory.push(fatigueIndex);
+            if(fatigueHistory.length > maxDataPoints) fatigueHistory.shift();
+            fatigueChart.data = fatigueHistory;
+            fatigueChart.draw();
+        }
+
+        // Initialize canvas sizes
+        function resizeCanvases() {
+            document.querySelectorAll('canvas').forEach(canvas => {
+                canvas.width = canvas.offsetWidth;
+                canvas.height = 300;
+            });
+            emgChart.draw();
+            fatigueChart.draw();
+        }
+
+        window.addEventListener('resize', resizeCanvases);
+        resizeCanvases();
+    </script>
+</body>
+</html>
