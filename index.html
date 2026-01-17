@@ -100,11 +100,54 @@
             padding: 25px;
             border: 1px solid rgba(255, 255, 255, 0.15);
             margin-bottom: 20px;
+            position: relative;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            padding-left: 50px;
+            padding-bottom: 40px;
         }
 
         canvas {
             width: 100% !important;
             height: 300px !important;
+        }
+
+        .y-axis, .x-axis {
+            position: absolute;
+            color: #aaa;
+            font-size: 0.85em;
+        }
+
+        .y-axis {
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%) rotate(-90deg);
+            transform-origin: center;
+            white-space: nowrap;
+        }
+
+        .x-axis {
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .axis-labels {
+            position: absolute;
+            color: #888;
+            font-size: 0.75em;
+        }
+
+        .y-labels {
+            left: 5px;
+            top: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 10px 0;
         }
 
         .controls {
@@ -221,37 +264,62 @@
     </div>
 
     <div class="chart-container">
-        <h3 style="color: #00d4ff; margin-bottom: 20px;">REAL-TIME EMG SIGNAL (12-bit Resolution)</h3>
-        <canvas id="emgChart"></canvas>
+        <h3 style="color: #00d4ff; margin-bottom: 20px;">RAW EMG SIGNAL (12-bit ADC Resolution)</h3>
+        <div class="chart-wrapper">
+            <div class="y-axis">ADC Value (0-4095)</div>
+            <div class="y-labels" id="rawYLabels"></div>
+            <canvas id="rawEmgChart"></canvas>
+            <div class="x-axis">Time (samples)</div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <h3 style="color: #00d4ff; margin-bottom: 20px;">RMS SIGNAL TREND</h3>
+        <div class="chart-wrapper">
+            <div class="y-axis">RMS Amplitude</div>
+            <div class="y-labels" id="rmsYLabels"></div>
+            <canvas id="emgChart"></canvas>
+            <div class="x-axis">Time</div>
+        </div>
     </div>
 
     <div class="chart-container">
         <h3 style="color: #00d4ff; margin-bottom: 20px;">FATIGUE TREND</h3>
-        <canvas id="fatigueChart"></canvas>
+        <div class="chart-wrapper">
+            <div class="y-axis">Fatigue Index (%)</div>
+            <div class="y-labels" id="fatigueYLabels"></div>
+            <canvas id="fatigueChart"></canvas>
+            <div class="x-axis">Time</div>
+        </div>
     </div>
 
     <script>
         let bleDevice;
         let bleCharacteristic;
+        let rawEmgData = [];
         let emgData = [];
         let fatigueHistory = [];
-        let timeLabels = [];
         const maxDataPoints = 50;
+        const maxRawSamples = 256; // Match N_SAMPLES from Arduino
 
-        // EMG Chart Setup
+        // Chart Setup
+        const rawEmgCtx = document.getElementById('rawEmgChart').getContext('2d');
+        const rawEmgChart = createChart(rawEmgCtx, 'RAW EMG', '#00d4ff', 0, 4095);
+
         const emgCtx = document.getElementById('emgChart').getContext('2d');
-        const emgChart = createChart(emgCtx, 'EMG RMS Value', '#00ff88');
+        const emgChart = createChart(emgCtx, 'RMS', '#00ff88');
 
-        // Fatigue Chart Setup
         const fatigueCtx = document.getElementById('fatigueChart').getContext('2d');
-        const fatigueChart = createChart(fatigueCtx, 'Fatigue Index (%)', '#ff4444');
+        const fatigueChart = createChart(fatigueCtx, 'Fatigue', '#ff4444', 0, 100);
 
-        function createChart(ctx, label, color) {
+        function createChart(ctx, label, color, fixedMin = null, fixedMax = null) {
             return {
                 ctx: ctx,
                 data: [],
                 labels: [],
                 color: color,
+                fixedMin: fixedMin,
+                fixedMax: fixedMax,
                 draw: function() {
                     const canvas = ctx.canvas;
                     const width = canvas.width;
@@ -262,7 +330,7 @@
                     // Grid
                     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
                     ctx.lineWidth = 1;
-                    for(let i = 0; i < 5; i++) {
+                    for(let i = 0; i <= 4; i++) {
                         const y = (height / 4) * i;
                         ctx.beginPath();
                         ctx.moveTo(0, y);
@@ -272,14 +340,21 @@
                     
                     if(this.data.length < 2) return;
                     
+                    // Calculate range
+                    let max, min;
+                    if(this.fixedMin !== null && this.fixedMax !== null) {
+                        min = this.fixedMin;
+                        max = this.fixedMax;
+                    } else {
+                        max = Math.max(...this.data, 1);
+                        min = Math.min(...this.data, 0);
+                    }
+                    const range = max - min || 1;
+                    
                     // Draw line
                     ctx.strokeStyle = this.color;
                     ctx.lineWidth = 2;
                     ctx.beginPath();
-                    
-                    const max = Math.max(...this.data, 1);
-                    const min = Math.min(...this.data, 0);
-                    const range = max - min || 1;
                     
                     this.data.forEach((val, i) => {
                         const x = (i / (this.data.length - 1)) * width;
@@ -291,17 +366,35 @@
                     
                     ctx.stroke();
                     
-                    // Draw points
-                    ctx.fillStyle = this.color;
-                    this.data.forEach((val, i) => {
-                        const x = (i / (this.data.length - 1)) * width;
-                        const y = height - ((val - min) / range) * height * 0.9 - height * 0.05;
-                        ctx.beginPath();
-                        ctx.arc(x, y, 3, 0, Math.PI * 2);
-                        ctx.fill();
-                    });
+                    // Draw points (only for smaller datasets)
+                    if(this.data.length < 100) {
+                        ctx.fillStyle = this.color;
+                        this.data.forEach((val, i) => {
+                            const x = (i / (this.data.length - 1)) * width;
+                            const y = height - ((val - min) / range) * height * 0.9 - height * 0.05;
+                            ctx.beginPath();
+                            ctx.arc(x, y, 2, 0, Math.PI * 2);
+                            ctx.fill();
+                        });
+                    }
+
+                    // Update Y-axis labels
+                    return {min, max};
                 }
             };
+        }
+
+        function updateYLabels(containerId, min, max) {
+            const container = document.getElementById(containerId);
+            if(!container) return;
+            
+            container.innerHTML = '';
+            for(let i = 0; i <= 4; i++) {
+                const value = max - (i * (max - min) / 4);
+                const label = document.createElement('div');
+                label.textContent = Math.round(value);
+                container.appendChild(label);
+            }
         }
 
         async function connectBLE() {
@@ -342,7 +435,20 @@
             const value = new TextDecoder().decode(event.target.value);
             const data = value.split(',');
             
-            // Parse: fatigueIndex, fatigueLevel, MDF, angleX, RMS
+            // Check if this is RAW_EMG data
+            if(data[0] === 'RAW_EMG') {
+                const rawValue = parseFloat(data[1]);
+                rawEmgData.push(rawValue);
+                if(rawEmgData.length > maxRawSamples) {
+                    rawEmgData.shift();
+                }
+                rawEmgChart.data = rawEmgData;
+                const range = rawEmgChart.draw();
+                if(range) updateYLabels('rawYLabels', range.min, range.max);
+                return;
+            }
+            
+            // Parse payload: fatigueIndex, fatigueLevel, MDF, angleX, RMS
             const fatigueIndex = parseInt(data[0]);
             const fatigueLevel = data[1];
             const mdf = parseInt(data[2]);
@@ -360,7 +466,7 @@
             const fatigueEl = document.getElementById('fatigueIndex');
             fatigueEl.className = 'metric-value';
             if(fatigueIndex < 50) fatigueEl.classList.add('fatigue-low'); // Fresh
-            else if(fatigueIndex < 80) fatigueEl.classList.add('fatigue-medium'); // Moderate
+            else if(fatigueIndex < 90) fatigueEl.classList.add('fatigue-medium'); // Moderate
             else fatigueEl.classList.add('fatigue-high'); // Hard
 
             // Update progress ring
@@ -373,24 +479,29 @@
             const needle = document.getElementById('angleNeedle');
             needle.style.transform = `translateX(-50%) rotate(${angle - 90}deg)`;
 
-            // Update charts
+            // Update RMS chart
             emgData.push(rms);
             if(emgData.length > maxDataPoints) emgData.shift();
             emgChart.data = emgData;
-            emgChart.draw();
+            const rmsRange = emgChart.draw();
+            if(rmsRange) updateYLabels('rmsYLabels', rmsRange.min, rmsRange.max);
 
+            // Update fatigue chart
             fatigueHistory.push(fatigueIndex);
             if(fatigueHistory.length > maxDataPoints) fatigueHistory.shift();
             fatigueChart.data = fatigueHistory;
-            fatigueChart.draw();
+            const fatigueRange = fatigueChart.draw();
+            if(fatigueRange) updateYLabels('fatigueYLabels', fatigueRange.min, fatigueRange.max);
         }
 
         // Initialize canvas sizes
         function resizeCanvases() {
             document.querySelectorAll('canvas').forEach(canvas => {
-                canvas.width = canvas.offsetWidth;
+                const parent = canvas.parentElement;
+                canvas.width = parent.offsetWidth;
                 canvas.height = 300;
             });
+            rawEmgChart.draw();
             emgChart.draw();
             fatigueChart.draw();
         }
